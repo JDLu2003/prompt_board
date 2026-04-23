@@ -24,7 +24,8 @@ cargo run
 - 打开面板后默认焦点在搜索栏，可用上下键切换提示词
 - 在列表中按 `Enter` 打开 Panel C，填写框默认使用上一次填写内容或 `[变量|默认值]`
 - 在 Panel C 中按 `Esc` 或点击返回按钮关闭 Panel C，回到选择 prompt 阶段
-- 在 Panel C 中按 `Enter` 切换到下一个填写框，最后一个填写框按 `Enter` 会复制并模拟粘贴
+- 在 Panel C 中按 `Enter` 切换到下一个填写框，最后一个填写框按 `Enter` 复制 Panel B 当前预览内容并保持页面显示
+- 在 Panel C 中按 `Shift + Enter` 可在当前填写框中换行
 - Panel C 中未填写的变量会在 Panel B 里继续显示为原始 `[变量名]` 或 `[变量名|默认值]` 占位符
 - 在 Panel C 中按 `Command + C` 复制 Panel B 当前预览内容
 - `Command + N` 新建提示词，`Command + E` 编辑当前提示词，`Command + Backspace` 删除当前提示词
@@ -41,7 +42,7 @@ cargo run
 - 变量表单支持默认值、自定义输入、实时预览
 - 提示词 CRUD
 - Markdown 预览
-- 写入剪贴板与模拟 `Command + V`
+- 写入剪贴板
 - 类 macOS 原生的浅色半透明三 panel 悬浮窗口
 - 自动加载 macOS 系统中文字体，支持中文标题、标签、正文与变量名显示
 

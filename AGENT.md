@@ -23,6 +23,7 @@ https://github.com/JDLu2003/prompt_board.git
 - Markdown 预览
 - 提示词 CRUD
 - `Command + C` 复制 Panel B 当前预览内容
+- Panel C 中 `Shift + Enter` 换行，普通 `Enter` 切换填写框；最后一个字段按 `Enter` 复制 Panel B 当前预览内容且不隐藏窗口
 
 主要文件：
 

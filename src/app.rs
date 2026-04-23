@@ -1,6 +1,6 @@
 use crate::{
     db::{Prompt, PromptDraft, PromptStore},
-    system::{copy_to_clipboard, paste_from_clipboard, HotkeyController},
+    system::{copy_to_clipboard, HotkeyController},
     template::{extract_template_variables, render_template_with_placeholders, TemplateVariable},
 };
 use eframe::egui::{
@@ -205,7 +205,7 @@ impl PromptBoardApp {
         }
 
         if self.fill.is_some() {
-            if ctx.input(|input| input.key_pressed(Key::Enter) && !input.modifiers.shift) {
+            if consume_plain_enter(ctx) {
                 self.focus_next_field(ctx);
             }
             return;
@@ -269,10 +269,6 @@ impl PromptBoardApp {
             });
         } else {
             self.copy_preview(ctx);
-            self.hide(ctx);
-            if let Err(err) = paste_from_clipboard() {
-                self.error = Some(format!("模拟粘贴失败：{err}"));
-            }
         }
     }
 
@@ -623,11 +619,9 @@ impl PromptBoardApp {
             });
             ui.add_space(4.0);
             ui.label(
-                RichText::new(
-                    "Esc 返回选择，Enter 切换输入框；最后一项 Enter 粘贴，Command+C 复制",
-                )
-                .font(FontId::proportional(18.0))
-                .color(Color32::from_rgb(105, 112, 122)),
+                RichText::new("Esc 返回选择，Enter 切换输入框，Shift+Enter 换行，Command+C 复制")
+                    .font(FontId::proportional(18.0))
+                    .color(Color32::from_rgb(105, 112, 122)),
             );
             ui.add_space(14.0);
 
@@ -655,8 +649,8 @@ impl PromptBoardApp {
                             .unwrap_or_else(|| "输入自定义内容".to_owned());
 
                         let response = ui.add_sized(
-                            [ui.available_width(), 52.0],
-                            TextEdit::singleline(&mut fill.values[index])
+                            [ui.available_width(), 120.0],
+                            TextEdit::multiline(&mut fill.values[index])
                                 .id(field_id)
                                 .hint_text(hint)
                                 .font(FontId::proportional(21.0)),
@@ -845,6 +839,10 @@ fn consume_copy_shortcut(ctx: &Context) -> bool {
     })
 }
 
+fn consume_plain_enter(ctx: &Context) -> bool {
+    ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Enter))
+}
+
 fn render_large_markdown(ui: &mut egui::Ui, cache: &mut CommonMarkCache, text: &str) {
     let original_style = ui.style().as_ref().clone();
     let mut style = original_style.clone();
@@ -909,7 +907,7 @@ fn prompt_row(ui: &mut egui::Ui, prompt: &Prompt, selected: bool) -> egui::Respo
                 );
                 ui.add_space(3.0);
                 ui.label(
-                    RichText::new(format!("{} · 最近 {}", prompt.tags, prompt.last_used_at))
+                    RichText::new(&prompt.tags)
                         .font(FontId::proportional(17.0))
                         .color(secondary),
                 );

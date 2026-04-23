@@ -8,7 +8,6 @@ arboard = "3.4"
 dirs = "5.0"
 eframe = "0.33"
 egui_commonmark = "0.22.0"
-enigo = "0.6.1"
 global-hotkey = "0.5"
 regex = "1.10"
 rusqlite = { version = "0.31", features = ["bundled"] }

@@ -39,9 +39,9 @@
 ### 3.3 变量提取与填写流
 
 - **变量识别**：自动从提示词内容中提取 `[变量名]` 或 `[变量名|默认值]` 占位符。
-- **顺畅表单**：Panel C 列出变量输入框，支持 Tab / Enter 快速切换。
+- **顺畅表单**：Panel C 列出变量输入框，支持 Enter 快速切换，Shift + Enter 在当前输入框内换行；最后一个字段按 Enter 复制当前预览内容并保持页面显示。
 - **实时预览**：填写过程中，Panel B 的 Markdown 预览实时显示替换后的结果；未填写变量保留原始占位符。
-- **上屏操作**：填写完成后，按 `Command + C` 复制到剪贴板；在最后一个填写框按 Enter 可模拟粘贴到当前活跃文本编辑器。
+- **上屏操作**：填写完成后，按 `Command + C` 复制到剪贴板；最后一个字段按 Enter 也会复制当前预览内容。Enter 不隐藏应用页面。
 
 ### 3.4 扩展功能
 
@@ -71,5 +71,5 @@ CREATE TABLE IF NOT EXISTS prompts (
 - **GUI 框架**：egui + eframe，配置无边框与透明窗口。
 - **Markdown 解析**：egui_commonmark。
 - **全局热键**：global-hotkey。
-- **剪贴板与模拟输入**：arboard 写剪贴板，enigo 模拟 `Command + V`。
+- **剪贴板**：arboard 写剪贴板。
 - **数据操作**：rusqlite。

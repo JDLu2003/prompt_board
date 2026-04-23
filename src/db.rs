@@ -7,7 +7,6 @@ pub struct Prompt {
     pub title: String,
     pub content: String,
     pub tags: String,
-    pub last_used_at: String,
 }
 
 #[derive(Clone, Debug)]
@@ -40,7 +39,7 @@ impl PromptStore {
 
         let like = format!("%{}%", trimmed);
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, content, COALESCE(tags, ''), last_used_at
+            "SELECT id, title, content, COALESCE(tags, '')
              FROM prompts
              WHERE title LIKE ?1 OR content LIKE ?1 OR tags LIKE ?1
              ORDER BY last_used_at DESC, updated_at DESC
@@ -93,7 +92,7 @@ impl PromptStore {
 
     fn all(&self) -> Result<Vec<Prompt>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, content, COALESCE(tags, ''), last_used_at
+            "SELECT id, title, content, COALESCE(tags, '')
              FROM prompts
              ORDER BY last_used_at DESC, updated_at DESC
              LIMIT 80",
@@ -233,7 +232,6 @@ fn prompt_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Prompt> {
         title: row.get(1)?,
         content: row.get(2)?,
         tags: row.get(3)?,
-        last_used_at: row.get(4)?,
     })
 }
 
