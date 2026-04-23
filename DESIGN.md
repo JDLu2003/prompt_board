@@ -1,10 +1,75 @@
-提示词管理工具 (Mac App) 产品与技术说明文档本文档针对类 Maccy 体验的提示词管理工具，详细梳理产品交互形态及纯 Rust 技术栈的具体落地实施方案。1. 产品形态与交互设计1.1 整体形态无主窗口模式：应用作为常驻后台的菜单栏（Menu Bar）工具运行，不会在程序坞（Dock）中显示图标。悬浮呼出：用户按下全局快捷键（如 Option + Space 或 Cmd + Shift + P）后，在鼠标当前位置或屏幕中央唤出轻量级悬浮窗。用完即走：完成复制或输入操作后，悬浮窗立刻隐藏，光标焦点自动回到用户之前正在使用的软件中。1.2 页面结构悬浮窗采用极简设计，主要划分为三个逻辑区域：顶部搜索栏：窗口唤出时，光标默认在此处。支持输入拼音、关键字进行实时过滤。主列表区：展示过滤后的提示词标题列表。支持使用上下方向键（↑ ↓）进行条目切换。右侧/底部预览区（可选）：当选中某个条目时，展示该提示词的完整内容，帮助用户确认细节。1.3 核心交互：模板化变量填入针对包含变量（如 [变量名]）的提示词，设计如下顺畅的工作流：选中与触发：在主列表中选中带有变量的提示词，按下 Enter 键。表单展开：悬浮窗不直接关闭，而是原地切换为“变量填写表单”视图。界面列出所有提取到的变量名，并在旁边提供文本输入框。快速输入：光标自动定位到第一个输入框。用户填写内容后，可通过 Tab 键快速跳转到下一个变量输入框。组装与上屏：所有变量填写完毕后，再次按下 Enter 键。程序在后台将填入的值替换到提示词模板中，随后将完整文本写入系统剪贴板。模拟粘贴：悬浮窗隐藏，程序模拟发送 Cmd + V 键盘事件，直接将组合好的提示词粘贴到用户原本活跃的输入框内。2. 技术栈选择与架构落地本项目采用纯 Rust 开发，重点解决 GUI 渲染、系统底层 API 调用及本地数据管理三个环节。2.1 GUI 框架：egui (结合 eframe)egui 是一个高度轻量的即时模式（Immediate Mode）GUI 库，资源占用极低，非常适合需要快速启动和隐藏的常驻悬浮工具。无边框与透明窗口：在 eframe 的 NativeOptions 中配置 decorated: false（移除系统标题栏）和 transparent: true（允许背景透明）。使用 egui 的 Frame 自定义带有圆角和阴影的背景面板，以贴近 macOS 的原生视觉习惯。界面状态管理：egui 的即时模式特性使得状态切换非常简单。通过维护一个 enum AppState { Searching, FillingVariables(Prompt) } 即可轻松实现列表视图与变量填写表单视图的无缝切换。2.2 系统级交互处理办法要实现类似 Maccy 的无缝体验，需要处理几个关键的 macOS 系统交互：后台常驻与隐藏 Dock 图标：在打包 Mac App 时，必须在其 Info.plist 文件中添加 LSUIElement = true 键值对。这能让程序以代理（Agent）模式运行，仅在状态栏显示，不在 Dock 栏出现。全局快捷键注册：引入 global-hotkey crate。在程序初始化时注册一个热键，并在 eframe 的事件循环或独立的后台线程中监听热键触发事件，收到事件后改变窗口的可见性（Visibility）。窗口层级与焦点抢占：为了确保悬浮窗能覆盖在绝大多数应用之上，可能需要通过 objc2 或 cocoa crate 调用少量的 macOS 平台原生 API。将窗口的 NSWindowLevel 设为 NSPopUpMenuWindowLevel 或 NSFloatingWindowLevel。并在唤出时调用 [NSApp activateIgnoringOtherApps:YES] 使窗口获得输入焦点。剪贴板写入与模拟按键：写入剪贴板：使用 arboard crate 进行跨平台的剪贴板读写。模拟粘贴：当完成组合并写入剪贴板后，为了将内容发送给前一个应用，可以使用 enigo crate 模拟发送键盘按键 Cmd + V。2.3 数据存储：SQLite作为轻量级本地工具，使用 SQLite 管理提示词数据能够提供比纯文本文件更好的查询效率和结构化管理能力。库选择：使用 rusqlite crate 进行数据库操作。数据初始化：程序首次启动时，检查并在用户的配置目录（如 ~/Library/Application Support/你的应用名/）下创建 data.db 文件，并执行建表语句。表结构设计建议：CREATE TABLE IF NOT EXISTS prompts (
+# Prompt Board 产品与技术设计文档
+
+本文档针对类 Maccy 体验的 macOS 提示词管理工具，梳理产品交互形态、功能模块以及纯 Rust 技术栈的实施方案。
+
+## 1. 产品形态与核心理念
+
+- **无主窗口模式**：应用作为常驻后台的菜单栏工具运行，不在 Dock 中显示图标。
+- **悬浮呼出**：用户按下全局快捷键后，以轻量级悬浮窗形式唤出。
+- **用完即走**：完成复制或模拟粘贴操作后，悬浮窗自动隐藏，焦点返回用户之前正在使用的软件中。
+
+## 2. 界面布局与视觉交互
+
+### 2.1 从右至左的面板布局
+
+界面采用自右向左展开的面板结构，贴合 macOS 屏幕右侧边缘，减少对屏幕中央主工作区的遮挡。
+
+- **Panel A（主控与列表）**：固定在屏幕最右侧，包含顶部搜索栏、提示词列表和管理入口。
+- **Panel B（预览与详情）**：位于 Panel A 左侧，渲染当前提示词的完整内容。
+- **Panel C（变量填写/编辑表单）**：位于 Panel B 左侧，仅在用户按下 Enter 或进入新建/编辑时显示。
+
+### 2.2 视觉与排版规范
+
+- **适度放大字体**：搜索栏约 20px，正文约 16-18px，保证高分辨率屏幕清晰易读。
+- **Markdown 渲染**：Panel B 支持 Markdown 格式解析，能渲染粗体、列表和代码块。
+- **自适应与主题**：界面采用圆角、半透明和轻微描边的 macOS 原生质感，后续可扩展浅色/深色模式适配。
+
+## 3. 功能模块规划
+
+### 3.1 提示词检索与排序
+
+- **全局搜索**：支持输入关键字对标题、标签和正文实时模糊匹配。
+- **最近使用排序**：列表默认按 `last_used_at` 降序排序。用户刚用过的提示词保持在更靠前的位置。
+
+### 3.2 提示词管理
+
+- **新建提示词**：在 Panel A 提供新建按钮和 `Command + N` 快捷键，允许录入标题、内容和标签。
+- **编辑与删除**：选中某条提示词后，可通过 `Command + E` 编辑，`Command + Backspace` 删除。
+
+### 3.3 变量提取与填写流
+
+- **变量识别**：自动从提示词内容中提取 `[变量名]` 或 `[变量名|默认值]` 占位符。
+- **顺畅表单**：Panel C 列出变量输入框，支持 Tab / Enter 快速切换。
+- **实时预览**：填写过程中，Panel B 的 Markdown 预览实时显示替换后的结果；未填写变量保留原始占位符。
+- **上屏操作**：填写完成后，按 `Command + C` 复制到剪贴板；在最后一个填写框按 Enter 可模拟粘贴到当前活跃文本编辑器。
+
+### 3.4 扩展功能
+
+- **快捷键自定义**：提供设置页面，允许用户更改默认唤出快捷键。
+- **数据导入导出**：支持将提示词库导出为 JSON 或 Markdown 文件。
+
+## 4. 数据库设计
+
+采用 SQLite 作为本地轻量级存储方案。基于最近使用排序，表结构如下：
+
+```sql
+CREATE TABLE IF NOT EXISTS prompts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
-    content TEXT NOT NULL,          -- 包含 [变量] 的原始文本
-    tags TEXT,                      -- 用于快捷过滤的标签
-    usage_count INTEGER DEFAULT 0,  -- 记录使用频次，可用于列表排序
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    content TEXT NOT NULL,
+    tags TEXT,
+    last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+```
 
-查询优化：在应用启动时或搜索时，通过 LIKE '%keyword%' 语句进行内容筛选，或者开启 SQLite 的 FTS（全文搜索）扩展模块，提升长文本搜索的速度和精准度。查询结果可缓存在内存中供 egui 每一帧渲染使用，避免频繁读取硬盘。
+每次用户完成复制或粘贴操作时，更新该条目的 `last_used_at` 为当前时间。
+
+## 5. 技术落地选型
+
+- **GUI 框架**：egui + eframe，配置无边框与透明窗口。
+- **Markdown 解析**：egui_commonmark。
+- **全局热键**：global-hotkey。
+- **剪贴板与模拟输入**：arboard 写剪贴板，enigo 模拟 `Command + V`。
+- **数据操作**：rusqlite。

@@ -1,4 +1,5 @@
 use arboard::Clipboard;
+use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
     GlobalHotKeyEvent, GlobalHotKeyManager,
@@ -36,5 +37,18 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
     Clipboard::new()
         .map_err(|err| err.to_string())?
         .set_text(text.to_owned())
+        .map_err(|err| err.to_string())
+}
+
+pub fn paste_from_clipboard() -> Result<(), String> {
+    let mut enigo = Enigo::new(&Settings::default()).map_err(|err| err.to_string())?;
+    enigo
+        .key(Key::Meta, Direction::Press)
+        .map_err(|err| err.to_string())?;
+    enigo
+        .key(Key::Unicode('v'), Direction::Click)
+        .map_err(|err| err.to_string())?;
+    enigo
+        .key(Key::Meta, Direction::Release)
         .map_err(|err| err.to_string())
 }

@@ -1,13 +1,14 @@
 use crate::{
-    db::{Prompt, PromptStore},
-    system::{copy_to_clipboard, HotkeyController},
-    template::{extract_variables, render_template},
+    db::{Prompt, PromptDraft, PromptStore},
+    system::{copy_to_clipboard, paste_from_clipboard, HotkeyController},
+    template::{extract_template_variables, render_template_with_placeholders, TemplateVariable},
 };
 use eframe::egui::{
     self, vec2, Align, Color32, Context, CornerRadius, Event, FontData, FontDefinitions,
     FontFamily, FontId, Key, Layout, Modifiers, Pos2, RichText, ScrollArea, Stroke, TextEdit,
     ViewportCommand,
 };
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 const PANEL_GAP: f32 = 14.0;
@@ -24,6 +25,8 @@ pub struct PromptBoardApp {
     query: String,
     selected: usize,
     fill: Option<FillState>,
+    editor: Option<EditorState>,
+    markdown_cache: CommonMarkCache,
     previous_values: HashMap<String, String>,
     visible: bool,
     skip_focus_hide_once: bool,
@@ -34,9 +37,17 @@ pub struct PromptBoardApp {
 #[derive(Clone)]
 struct FillState {
     prompt: Prompt,
-    variables: Vec<String>,
+    variables: Vec<TemplateVariable>,
     values: Vec<String>,
     focused_index: usize,
+}
+
+#[derive(Clone)]
+struct EditorState {
+    prompt_id: Option<i64>,
+    title: String,
+    content: String,
+    tags: String,
 }
 
 impl PromptBoardApp {
@@ -71,6 +82,8 @@ impl PromptBoardApp {
             query: String::new(),
             selected: 0,
             fill: None,
+            editor: None,
+            markdown_cache: CommonMarkCache::default(),
             previous_values: HashMap::new(),
             visible: true,
             skip_focus_hide_once: false,
@@ -109,6 +122,10 @@ impl PromptBoardApp {
     }
 
     fn preview_prompt(&self) -> Option<&Prompt> {
+        if self.editor.is_some() {
+            return None;
+        }
+
         self.fill
             .as_ref()
             .map(|fill| &fill.prompt)
@@ -116,14 +133,22 @@ impl PromptBoardApp {
     }
 
     fn preview_text(&self) -> String {
+        if let Some(editor) = &self.editor {
+            return editor.content.clone();
+        }
+
         if let Some(fill) = &self.fill {
             let pairs = fill
                 .variables
                 .iter()
-                .cloned()
+                .map(|variable| variable.name.clone())
                 .zip(fill.values.iter().cloned())
                 .collect::<Vec<_>>();
-            return render_template(&fill.prompt.content, &pairs);
+            return render_template_with_placeholders(
+                &fill.prompt.content,
+                &fill.variables,
+                &pairs,
+            );
         }
 
         self.selected_prompt()
@@ -148,6 +173,28 @@ impl PromptBoardApp {
                 return;
             }
             self.hide(ctx);
+            return;
+        }
+
+        if ctx.input(|input| input.modifiers.command && input.key_pressed(Key::N)) {
+            self.start_new_prompt(ctx);
+            return;
+        }
+
+        if ctx.input(|input| input.modifiers.command && input.key_pressed(Key::E)) {
+            self.start_editing_selected(ctx);
+            return;
+        }
+
+        if ctx.input(|input| input.modifiers.command && input.key_pressed(Key::Backspace)) {
+            self.delete_selected();
+            return;
+        }
+
+        if self.editor.is_some() {
+            if ctx.input(|input| input.modifiers.command && input.key_pressed(Key::S)) {
+                self.save_editor(ctx);
+            }
             return;
         }
 
@@ -181,7 +228,7 @@ impl PromptBoardApp {
             return;
         };
 
-        let variables = extract_variables(&prompt.content);
+        let variables = extract_template_variables(&prompt.content);
         if variables.is_empty() {
             self.copy_prompt_text(prompt.id, prompt.content);
             return;
@@ -189,9 +236,16 @@ impl PromptBoardApp {
 
         let values = variables
             .iter()
-            .map(|name| self.previous_values.get(name).cloned().unwrap_or_default())
+            .map(|variable| {
+                self.previous_values
+                    .get(&variable.name)
+                    .cloned()
+                    .or_else(|| variable.default_value.clone())
+                    .unwrap_or_default()
+            })
             .collect();
 
+        self.editor = None;
         self.fill = Some(FillState {
             prompt,
             variables,
@@ -209,17 +263,105 @@ impl PromptBoardApp {
 
         if fill.focused_index + 1 < fill.variables.len() {
             fill.focused_index += 1;
+            ctx.memory_mut(|memory| {
+                memory.request_focus(egui::Id::new(format!("var_{}", fill.focused_index)));
+            });
+        } else {
+            self.copy_preview(ctx);
+            self.hide(ctx);
+            if let Err(err) = paste_from_clipboard() {
+                self.error = Some(format!("模拟粘贴失败：{err}"));
+            }
         }
-
-        ctx.memory_mut(|memory| {
-            memory.request_focus(egui::Id::new(format!("var_{}", fill.focused_index)));
-        });
     }
 
     fn return_to_selection(&mut self, ctx: &Context) {
         self.fill = None;
+        self.editor = None;
         self.status = None;
         ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("search")));
+    }
+
+    fn start_new_prompt(&mut self, ctx: &Context) {
+        self.fill = None;
+        self.editor = Some(EditorState {
+            prompt_id: None,
+            title: String::new(),
+            content: String::new(),
+            tags: String::new(),
+        });
+        self.status = None;
+        ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("editor_title")));
+    }
+
+    fn start_editing_selected(&mut self, ctx: &Context) {
+        let Some(prompt) = self.selected_prompt().cloned() else {
+            return;
+        };
+        self.fill = None;
+        self.editor = Some(EditorState {
+            prompt_id: Some(prompt.id),
+            title: prompt.title,
+            content: prompt.content,
+            tags: prompt.tags,
+        });
+        self.status = None;
+        ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("editor_title")));
+    }
+
+    fn save_editor(&mut self, ctx: &Context) {
+        let Some(editor) = &self.editor else {
+            return;
+        };
+        let draft = PromptDraft {
+            title: editor.title.trim().to_owned(),
+            content: editor.content.trim().to_owned(),
+            tags: editor.tags.trim().to_owned(),
+        };
+
+        if draft.title.is_empty() || draft.content.is_empty() {
+            self.error = Some("标题和内容不能为空".to_owned());
+            return;
+        }
+
+        let result = if let Some(id) = editor.prompt_id {
+            self.store.as_ref().map(|store| store.update(id, &draft))
+        } else {
+            self.store
+                .as_ref()
+                .map(|store| store.create(&draft).map(|_| ()))
+        };
+
+        match result {
+            Some(Ok(())) => {
+                self.editor = None;
+                self.status = Some("已保存提示词".to_owned());
+                self.refresh_prompts();
+                ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("search")));
+            }
+            Some(Err(err)) => self.error = Some(err.to_string()),
+            None => self.error = Some("数据库不可用".to_owned()),
+        }
+    }
+
+    fn delete_selected(&mut self) {
+        let Some(prompt) = self.selected_prompt().cloned() else {
+            return;
+        };
+        let Some(store) = &self.store else {
+            self.error = Some("数据库不可用".to_owned());
+            return;
+        };
+
+        match store.delete(prompt.id) {
+            Ok(()) => {
+                self.fill = None;
+                self.editor = None;
+                self.status = Some("已删除提示词".to_owned());
+                self.refresh_prompts();
+            }
+            Err(err) => self.error = Some(err.to_string()),
+        }
     }
 
     fn copy_preview(&mut self, ctx: &Context) {
@@ -230,16 +372,17 @@ impl PromptBoardApp {
 
         if let Some(fill) = &self.fill {
             for (name, value) in fill.variables.iter().zip(fill.values.iter()) {
-                self.previous_values.insert(name.clone(), value.clone());
+                self.previous_values
+                    .insert(name.name.clone(), value.clone());
             }
             if let Some(store) = &self.store {
-                if let Err(err) = store.increment_usage(fill.prompt.id) {
+                if let Err(err) = store.mark_used(fill.prompt.id) {
                     self.error = Some(err.to_string());
                 }
             }
         } else if let Some(prompt) = self.selected_prompt() {
             if let Some(store) = &self.store {
-                if let Err(err) = store.increment_usage(prompt.id) {
+                if let Err(err) = store.mark_used(prompt.id) {
                     self.error = Some(err.to_string());
                 }
             }
@@ -258,7 +401,7 @@ impl PromptBoardApp {
             Ok(()) => {
                 self.status = Some("已复制提示词".to_owned());
                 if let Some(store) = &self.store {
-                    if let Err(err) = store.increment_usage(prompt_id) {
+                    if let Err(err) = store.mark_used(prompt_id) {
                         self.error = Some(err.to_string());
                     }
                 }
@@ -292,7 +435,7 @@ impl PromptBoardApp {
 
     fn desired_window_width(&self) -> f32 {
         let mut width = PANEL_A_WIDTH + PANEL_GAP + PANEL_B_WIDTH;
-        if self.fill.is_some() {
+        if self.fill.is_some() || self.editor.is_some() {
             width += PANEL_GAP + PANEL_C_WIDTH;
         }
         width + WINDOW_MARGIN * 2.0
@@ -330,7 +473,7 @@ impl PromptBoardApp {
                 self.panel_b(ui, panel_height);
             });
 
-        if self.fill.is_some() {
+        if self.fill.is_some() || self.editor.is_some() {
             egui::Area::new(egui::Id::new("panel_c"))
                 .fixed_pos(Pos2::new(panel_c_x, panel_y))
                 .order(egui::Order::Middle)
@@ -349,7 +492,14 @@ impl PromptBoardApp {
 
     fn panel_a(&mut self, ui: &mut egui::Ui, panel_height: f32) {
         mac_panel("A", ui, PANEL_A_WIDTH, panel_height, |ui| {
-            ui.label(section_title("提示词"));
+            ui.horizontal(|ui| {
+                ui.label(section_title("提示词"));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("新建").clicked() {
+                        self.start_new_prompt(ui.ctx());
+                    }
+                });
+            });
             ui.add_space(10.0);
 
             let search = TextEdit::singleline(&mut self.query)
@@ -362,6 +512,15 @@ impl PromptBoardApp {
                 self.refresh_prompts();
             }
 
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                if ui.button("编辑").clicked() {
+                    self.start_editing_selected(ui.ctx());
+                }
+                if ui.button("删除").clicked() {
+                    self.delete_selected();
+                }
+            });
             ui.add_space(12.0);
             self.prompt_list(ui);
         });
@@ -410,37 +569,35 @@ impl PromptBoardApp {
     fn panel_b(&mut self, ui: &mut egui::Ui, panel_height: f32) {
         let title = self
             .preview_prompt()
-            .map(|prompt| prompt.title.as_str())
-            .unwrap_or("预览");
+            .map(|prompt| prompt.title.clone())
+            .unwrap_or_else(|| "预览".to_owned());
+        let tags = self.preview_prompt().map(|prompt| prompt.tags.clone());
         let text = self.preview_text();
 
         mac_panel("B", ui, PANEL_B_WIDTH, panel_height, |ui| {
-            ui.label(section_title(title));
+            ui.label(section_title(&title));
             ui.add_space(6.0);
-            if let Some(prompt) = self.preview_prompt() {
+            if let Some(tags) = tags {
                 ui.label(
-                    RichText::new(&prompt.tags)
+                    RichText::new(tags)
                         .font(FontId::proportional(15.0))
                         .color(Color32::from_rgb(105, 112, 122)),
                 );
             }
             ui.add_space(14.0);
 
-            ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.label(
-                        RichText::new(text)
-                            .font(FontId::proportional(19.0))
-                            .color(Color32::from_rgb(30, 33, 36)),
-                    );
-                });
+            CommonMarkViewer::new().show(ui, &mut self.markdown_cache, &text);
         });
     }
 
     fn panel_c(&mut self, ui: &mut egui::Ui, panel_height: f32) {
         let mut request_focus = None;
         let mut return_to_selection = false;
+        if self.editor.is_some() {
+            self.editor_panel(ui, panel_height);
+            return;
+        }
+
         let Some(fill) = &mut self.fill else {
             return;
         };
@@ -465,9 +622,11 @@ impl PromptBoardApp {
             });
             ui.add_space(4.0);
             ui.label(
-                RichText::new("Esc 返回选择，Enter 切换输入框，Command+C 复制预览内容")
-                    .font(FontId::proportional(14.0))
-                    .color(Color32::from_rgb(105, 112, 122)),
+                RichText::new(
+                    "Esc 返回选择，Enter 切换输入框；最后一项 Enter 粘贴，Command+C 复制",
+                )
+                .font(FontId::proportional(14.0))
+                .color(Color32::from_rgb(105, 112, 122)),
             );
             ui.add_space(14.0);
 
@@ -477,13 +636,17 @@ impl PromptBoardApp {
                     for (index, variable) in fill.variables.iter().enumerate() {
                         let field_id = egui::Id::new(format!("var_{index}"));
                         ui.label(
-                            RichText::new(variable)
+                            RichText::new(&variable.name)
                                 .font(FontId::proportional(16.0))
                                 .strong()
                                 .color(Color32::from_rgb(42, 45, 50)),
                         );
 
-                        let previous = self.previous_values.get(variable).cloned();
+                        let previous = self
+                            .previous_values
+                            .get(&variable.name)
+                            .cloned()
+                            .or_else(|| variable.default_value.clone());
                         let hint = previous
                             .as_ref()
                             .filter(|value| !value.is_empty())
@@ -515,6 +678,67 @@ impl PromptBoardApp {
         }
         if return_to_selection {
             self.return_to_selection(ui.ctx());
+        }
+    }
+
+    fn editor_panel(&mut self, ui: &mut egui::Ui, panel_height: f32) {
+        let mut save = false;
+        let mut cancel = false;
+        let Some(editor) = &mut self.editor else {
+            return;
+        };
+
+        mac_panel("Editor", ui, PANEL_C_WIDTH, panel_height, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("取消").clicked() {
+                    cancel = true;
+                }
+                ui.label(section_title(if editor.prompt_id.is_some() {
+                    "编辑提示词"
+                } else {
+                    "新建提示词"
+                }));
+            });
+            ui.add_space(12.0);
+
+            ui.label(body_text("标题"));
+            ui.add_sized(
+                [ui.available_width(), 42.0],
+                TextEdit::singleline(&mut editor.title)
+                    .id(egui::Id::new("editor_title"))
+                    .hint_text("例如：代码审查")
+                    .font(FontId::proportional(17.0)),
+            );
+            ui.add_space(12.0);
+
+            ui.label(body_text("标签"));
+            ui.add_sized(
+                [ui.available_width(), 42.0],
+                TextEdit::singleline(&mut editor.tags)
+                    .hint_text("例如：代码, 审查")
+                    .font(FontId::proportional(17.0)),
+            );
+            ui.add_space(12.0);
+
+            ui.label(body_text("内容"));
+            ui.add_sized(
+                [ui.available_width(), (panel_height - 260.0).max(180.0)],
+                TextEdit::multiline(&mut editor.content)
+                    .hint_text("支持 Markdown，以及 [变量] / [变量|默认值]")
+                    .font(FontId::proportional(16.0)),
+            );
+            ui.add_space(12.0);
+
+            if ui.button("保存（Command+S）").clicked() {
+                save = true;
+            }
+        });
+
+        if cancel {
+            self.return_to_selection(ui.ctx());
+        }
+        if save {
+            self.save_editor(ui.ctx());
         }
     }
 }
@@ -657,7 +881,7 @@ fn prompt_row(ui: &mut egui::Ui, prompt: &Prompt, selected: bool) -> egui::Respo
                 );
                 ui.add_space(3.0);
                 ui.label(
-                    RichText::new(format!("{} · 使用 {}", prompt.tags, prompt.usage_count))
+                    RichText::new(format!("{} · 最近 {}", prompt.tags, prompt.last_used_at))
                         .font(FontId::proportional(14.0))
                         .color(secondary),
                 );
