@@ -4,7 +4,7 @@
 
 ## 1. 产品形态与核心理念
 
-- **无主窗口模式**：应用作为常驻后台的菜单栏工具运行，不在 Dock 中显示图标。
+- **无主窗口模式**：应用作为常驻后台的菜单栏/后台工具运行，通过 macOS `.app` bundle 的 `LSUIElement` 隐藏 Dock 图标，启动后默认不显示主窗口。
 - **悬浮呼出**：用户按下全局快捷键后，以轻量级悬浮窗形式唤出。
 - **用完即走**：完成复制或模拟粘贴操作后，悬浮窗自动隐藏，焦点返回用户之前正在使用的软件中。
 
@@ -73,3 +73,10 @@ CREATE TABLE IF NOT EXISTS prompts (
 - **全局热键**：global-hotkey。
 - **剪贴板**：arboard 写剪贴板。
 - **数据操作**：rusqlite。
+
+## 6. 安装与数据安全
+
+- **安装方式**：`install.command` 调用 `scripts/install_macos.sh`，构建 release `.app` 并安装到 `~/Applications/Prompt Board.app`。
+- **运行方式**：用户从 Finder、Spotlight、Launchpad 或安装脚本启动 `.app`，不依赖终端命令行会话。
+- **更新策略**：更新只替换 `.app` 应用包，不删除用户数据目录。
+- **数据库位置**：`~/Library/Application Support/Prompt Board/data.db`。

@@ -14,7 +14,8 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([1320.0, 640.0])
             .with_decorations(false)
             .with_transparent(true)
-            .with_always_on_top(),
+            .with_always_on_top()
+            .with_visible(false),
         ..Default::default()
     };
 

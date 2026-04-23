@@ -2,13 +2,43 @@
 
 一个类 Maccy 体验的 macOS 提示词管理 MVP。它以轻量悬浮面板运行，支持搜索和管理本地提示词模板、填写 `[变量]` / `[变量|默认值]`，并复制或上屏实时预览中的最终文本。
 
-## 运行
+## 安装
+
+双击仓库根目录的 `install.command`，它会构建 release 版本、安装到：
+
+```text
+~/Applications/Prompt Board.app
+```
+
+安装完成后会自动启动应用。之后可以直接从 Finder、Spotlight 或 Launchpad 打开 `Prompt Board.app`，运行时不需要再启动命令行客户端。
+
+如果要安装到系统应用目录，可以在终端执行：
+
+```bash
+PROMPT_BOARD_INSTALL_DIR=/Applications ./scripts/install_macos.sh
+```
+
+更新程序时再次运行 `install.command` 即可。安装脚本只替换 `.app` 应用包，不会删除数据库。
+
+## 数据库
+
+提示词数据库保存在：
+
+```text
+~/Library/Application Support/Prompt Board/data.db
+```
+
+应用更新、重新安装、替换 `Prompt Board.app` 都不会改动这个目录。只有删除上述 `data.db` 文件或整个 `Prompt Board` 数据目录时，提示词数据才会被清除。
+
+## 开发运行
 
 ```bash
 cargo run
 ```
 
 默认快捷键：`Command + Shift + P`。
+
+正式安装后的应用是菜单栏/后台工具形态：不会占用 Dock 位置，启动后默认隐藏浮窗，按快捷键呼出。
 
 按下快捷键后，面板会保持显示；按 `Esc` 隐藏。再次按快捷键只会显示并聚焦面板，不会把它切走。
 

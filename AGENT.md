@@ -17,6 +17,7 @@ https://github.com/JDLu2003/prompt_board.git
 - 全局快捷键：`Command + Shift + P`
 - 三个独立浮层 panel：Panel A 搜索列表，Panel B 预览，Panel C 变量填写
 - SQLite 本地存储：`~/Library/Application Support/Prompt Board/data.db`
+- 安装脚本默认安装到 `~/Applications/Prompt Board.app`，更新只替换 `.app`，不要删除数据库目录
 - 中文字体加载与中文示例数据
 - 模板变量格式：`[变量名]` 和 `[变量名|默认值]`
 - 填写时未输入的变量保留原始占位符
@@ -36,6 +37,8 @@ src/db.rs
 src/system.rs
 src/template.rs
 scripts/bundle_macos.sh
+scripts/install_macos.sh
+install.command
 packaging/macos/Info.plist
 README.md
 DESIGN.md
