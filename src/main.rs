@@ -10,8 +10,8 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Prompt Board")
-            .with_inner_size([1290.0, 680.0])
-            .with_min_inner_size([950.0, 560.0])
+            .with_inner_size([1830.0, 760.0])
+            .with_min_inner_size([1320.0, 640.0])
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top(),

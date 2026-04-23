@@ -6,17 +6,18 @@ use crate::{
 use eframe::egui::{
     self, vec2, Align, Color32, Context, CornerRadius, Event, FontData, FontDefinitions,
     FontFamily, FontId, Key, Layout, Modifiers, Pos2, RichText, ScrollArea, Stroke, TextEdit,
-    ViewportCommand,
+    TextStyle, ViewportCommand,
 };
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 const PANEL_GAP: f32 = 14.0;
-const PANEL_A_WIDTH: f32 = 360.0;
-const PANEL_B_WIDTH: f32 = 520.0;
-const PANEL_C_WIDTH: f32 = 360.0;
+const PANEL_A_WIDTH: f32 = 460.0;
+const PANEL_B_WIDTH: f32 = 860.0;
+const PANEL_C_WIDTH: f32 = 460.0;
 const WINDOW_MARGIN: f32 = 18.0;
 const PANEL_SCREEN_HEIGHT_RATIO: f32 = 0.8;
+const DEFAULT_UI_SCALE: f32 = 1.45;
 
 pub struct PromptBoardApp {
     store: Option<PromptStore>,
@@ -52,7 +53,7 @@ struct EditorState {
 
 impl PromptBoardApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_pixels_per_point(1.0);
+        cc.egui_ctx.set_pixels_per_point(DEFAULT_UI_SCALE);
 
         let mut error = None;
         if let Err(err) = configure_chinese_fonts(&cc.egui_ctx) {
@@ -506,9 +507,9 @@ impl PromptBoardApp {
                 .id(egui::Id::new("search"))
                 .hint_text("搜索标题、标签或内容")
                 .desired_width(f32::INFINITY)
-                .font(FontId::proportional(18.0));
+                .font(FontId::proportional(22.0));
 
-            if ui.add_sized([ui.available_width(), 42.0], search).changed() {
+            if ui.add_sized([ui.available_width(), 52.0], search).changed() {
                 self.refresh_prompts();
             }
 
@@ -580,13 +581,13 @@ impl PromptBoardApp {
             if let Some(tags) = tags {
                 ui.label(
                     RichText::new(tags)
-                        .font(FontId::proportional(15.0))
+                        .font(FontId::proportional(19.0))
                         .color(Color32::from_rgb(105, 112, 122)),
                 );
             }
             ui.add_space(14.0);
 
-            CommonMarkViewer::new().show(ui, &mut self.markdown_cache, &text);
+            render_large_markdown(ui, &mut self.markdown_cache, &text);
         });
     }
 
@@ -609,7 +610,7 @@ impl PromptBoardApp {
                         [32.0, 28.0],
                         egui::Button::new(
                             RichText::new("‹")
-                                .font(FontId::proportional(25.0))
+                                .font(FontId::proportional(30.0))
                                 .color(Color32::from_rgb(42, 45, 50)),
                         ),
                     )
@@ -625,7 +626,7 @@ impl PromptBoardApp {
                 RichText::new(
                     "Esc 返回选择，Enter 切换输入框；最后一项 Enter 粘贴，Command+C 复制",
                 )
-                .font(FontId::proportional(14.0))
+                .font(FontId::proportional(18.0))
                 .color(Color32::from_rgb(105, 112, 122)),
             );
             ui.add_space(14.0);
@@ -637,7 +638,7 @@ impl PromptBoardApp {
                         let field_id = egui::Id::new(format!("var_{index}"));
                         ui.label(
                             RichText::new(&variable.name)
-                                .font(FontId::proportional(16.0))
+                                .font(FontId::proportional(20.0))
                                 .strong()
                                 .color(Color32::from_rgb(42, 45, 50)),
                         );
@@ -654,11 +655,11 @@ impl PromptBoardApp {
                             .unwrap_or_else(|| "输入自定义内容".to_owned());
 
                         let response = ui.add_sized(
-                            [ui.available_width(), 42.0],
+                            [ui.available_width(), 52.0],
                             TextEdit::singleline(&mut fill.values[index])
                                 .id(field_id)
                                 .hint_text(hint)
-                                .font(FontId::proportional(17.0)),
+                                .font(FontId::proportional(21.0)),
                         );
 
                         if response.gained_focus() {
@@ -707,7 +708,7 @@ impl PromptBoardApp {
                 TextEdit::singleline(&mut editor.title)
                     .id(egui::Id::new("editor_title"))
                     .hint_text("例如：代码审查")
-                    .font(FontId::proportional(17.0)),
+                    .font(FontId::proportional(21.0)),
             );
             ui.add_space(12.0);
 
@@ -716,7 +717,7 @@ impl PromptBoardApp {
                 [ui.available_width(), 42.0],
                 TextEdit::singleline(&mut editor.tags)
                     .hint_text("例如：代码, 审查")
-                    .font(FontId::proportional(17.0)),
+                    .font(FontId::proportional(21.0)),
             );
             ui.add_space(12.0);
 
@@ -725,7 +726,7 @@ impl PromptBoardApp {
                 [ui.available_width(), (panel_height - 260.0).max(180.0)],
                 TextEdit::multiline(&mut editor.content)
                     .hint_text("支持 Markdown，以及 [变量] / [变量|默认值]")
-                    .font(FontId::proportional(16.0)),
+                    .font(FontId::proportional(20.0)),
             );
             ui.add_space(12.0);
 
@@ -766,7 +767,7 @@ impl eframe::App for PromptBoardApp {
                                 .show(ui, |ui| {
                                     ui.label(
                                         RichText::new(error)
-                                            .font(FontId::proportional(14.0))
+                                            .font(FontId::proportional(17.0))
                                             .color(Color32::from_rgb(168, 35, 35)),
                                     );
                                 });
@@ -787,7 +788,7 @@ impl eframe::App for PromptBoardApp {
                                 .show(ui, |ui| {
                                     ui.label(
                                         RichText::new(status)
-                                            .font(FontId::proportional(14.0))
+                                            .font(FontId::proportional(17.0))
                                             .color(Color32::from_rgb(55, 61, 68)),
                                     );
                                 });
@@ -844,6 +845,33 @@ fn consume_copy_shortcut(ctx: &Context) -> bool {
     })
 }
 
+fn render_large_markdown(ui: &mut egui::Ui, cache: &mut CommonMarkCache, text: &str) {
+    let original_style = ui.style().as_ref().clone();
+    let mut style = original_style.clone();
+    style.text_styles.insert(
+        TextStyle::Heading,
+        FontId::new(42.0, FontFamily::Proportional),
+    );
+    style
+        .text_styles
+        .insert(TextStyle::Body, FontId::new(34.0, FontFamily::Proportional));
+    style.text_styles.insert(
+        TextStyle::Monospace,
+        FontId::new(30.0, FontFamily::Monospace),
+    );
+    style.text_styles.insert(
+        TextStyle::Button,
+        FontId::new(30.0, FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        TextStyle::Small,
+        FontId::new(26.0, FontFamily::Proportional),
+    );
+    ui.set_style(style);
+    CommonMarkViewer::new().show(ui, cache, text);
+    ui.set_style(original_style);
+}
+
 fn prompt_row(ui: &mut egui::Ui, prompt: &Prompt, selected: bool) -> egui::Response {
     let fill = if selected {
         Color32::from_rgba_premultiplied(0, 122, 255, 225)
@@ -875,14 +903,14 @@ fn prompt_row(ui: &mut egui::Ui, prompt: &Prompt, selected: bool) -> egui::Respo
             ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
                 ui.label(
                     RichText::new(&prompt.title)
-                        .font(FontId::proportional(17.0))
+                        .font(FontId::proportional(21.0))
                         .strong()
                         .color(primary),
                 );
                 ui.add_space(3.0);
                 ui.label(
                     RichText::new(format!("{} · 最近 {}", prompt.tags, prompt.last_used_at))
-                        .font(FontId::proportional(14.0))
+                        .font(FontId::proportional(17.0))
                         .color(secondary),
                 );
             });
@@ -892,14 +920,14 @@ fn prompt_row(ui: &mut egui::Ui, prompt: &Prompt, selected: bool) -> egui::Respo
 
 fn section_title(text: &str) -> RichText {
     RichText::new(text)
-        .font(FontId::proportional(22.0))
+        .font(FontId::proportional(28.0))
         .strong()
         .color(Color32::from_rgb(24, 27, 31))
 }
 
 fn body_text(text: &str) -> RichText {
     RichText::new(text)
-        .font(FontId::proportional(17.0))
+        .font(FontId::proportional(21.0))
         .color(Color32::from_rgb(40, 44, 50))
 }
 
