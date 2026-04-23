@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-macos:
+    name: Build macOS release
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build app bundle
+        run: ./scripts/bundle_macos.sh
+
+      - name: Zip unsigned app
+        run: |
+          cd target/release
+          ditto -c -k --sequesterRsrc --keepParent "Prompt Board.app" "Prompt-Board-${GITHUB_REF_NAME}-macos-unsigned.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/Prompt-Board-${{ github.ref_name }}-macos-unsigned.zip
+          generate_release_notes: true

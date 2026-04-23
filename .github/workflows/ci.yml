@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Check
+        run: cargo check --locked
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Validate macOS bundle script
+        run: bash -n scripts/bundle_macos.sh
+
+      - name: Build release app bundle
+        run: ./scripts/bundle_macos.sh
+
+      - name: Upload unsigned app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Prompt-Board-unsigned-app
+          path: target/release/Prompt Board.app
+          if-no-files-found: error
