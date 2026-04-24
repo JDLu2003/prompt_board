@@ -316,8 +316,8 @@ impl PromptBoardApp {
             tags: editor.tags.trim().to_owned(),
         };
 
-        if draft.title.is_empty() || draft.content.is_empty() {
-            self.error = Some("标题和内容不能为空".to_owned());
+        if draft.content.is_empty() {
+            self.error = Some("内容不能为空".to_owned());
             return;
         }
 
@@ -566,7 +566,7 @@ impl PromptBoardApp {
     fn panel_b(&mut self, ui: &mut egui::Ui, panel_height: f32) {
         let title = self
             .preview_prompt()
-            .map(|prompt| prompt.title.clone())
+            .map(|prompt| display_title(prompt))
             .unwrap_or_else(|| "预览".to_owned());
         let tags = self.preview_prompt().map(|prompt| prompt.tags.clone());
         let text = self.preview_text();
@@ -907,8 +907,9 @@ fn prompt_row(ui: &mut egui::Ui, prompt: &Prompt, selected: bool) -> egui::Respo
         .inner_margin(egui::Margin::symmetric(12, 11))
         .show(ui, |ui| {
             ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
+                let display = display_title(prompt);
                 ui.label(
-                    RichText::new(&prompt.title)
+                    RichText::new(&display)
                         .font(FontId::proportional(21.0))
                         .strong()
                         .color(primary),
@@ -922,6 +923,25 @@ fn prompt_row(ui: &mut egui::Ui, prompt: &Prompt, selected: bool) -> egui::Respo
             });
         })
         .response
+}
+
+fn display_title(prompt: &Prompt) -> String {
+    if prompt.title.is_empty() {
+        let trimmed = prompt.content.trim();
+        let max_chars = 50;
+        let end = trimmed
+            .char_indices()
+            .nth(max_chars)
+            .map(|(i, _)| i)
+            .unwrap_or(trimmed.len());
+        if end < trimmed.len() {
+            format!("{}…", &trimmed[..end])
+        } else {
+            trimmed.to_owned()
+        }
+    } else {
+        prompt.title.clone()
+    }
 }
 
 fn section_title(text: &str) -> RichText {
