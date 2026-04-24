@@ -572,18 +572,22 @@ impl PromptBoardApp {
         let text = self.preview_text();
 
         mac_panel("B", ui, PANEL_B_WIDTH, panel_height, |ui| {
-            ui.label(section_title(&title));
-            ui.add_space(6.0);
-            if let Some(tags) = tags {
-                ui.label(
-                    RichText::new(tags)
-                        .font(FontId::proportional(19.0))
-                        .color(Color32::from_rgb(105, 112, 122)),
-                );
-            }
-            ui.add_space(14.0);
+            ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.label(section_title(&title));
+                    ui.add_space(6.0);
+                    if let Some(tags) = tags {
+                        ui.label(
+                            RichText::new(tags)
+                                .font(FontId::proportional(19.0))
+                                .color(Color32::from_rgb(105, 112, 122)),
+                        );
+                    }
+                    ui.add_space(14.0);
 
-            render_large_markdown(ui, &mut self.markdown_cache, &text);
+                    render_large_markdown(ui, &mut self.markdown_cache, &text);
+                });
         });
     }
 
@@ -684,49 +688,53 @@ impl PromptBoardApp {
         };
 
         mac_panel("Editor", ui, PANEL_C_WIDTH, panel_height, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("取消").clicked() {
-                    cancel = true;
-                }
-                ui.label(section_title(if editor.prompt_id.is_some() {
-                    "编辑提示词"
-                } else {
-                    "新建提示词"
-                }));
-            });
-            ui.add_space(12.0);
+            ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("取消").clicked() {
+                            cancel = true;
+                        }
+                        ui.label(section_title(if editor.prompt_id.is_some() {
+                            "编辑提示词"
+                        } else {
+                            "新建提示词"
+                        }));
+                    });
+                    ui.add_space(12.0);
 
-            ui.label(body_text("标题"));
-            ui.add_sized(
-                [ui.available_width(), 42.0],
-                TextEdit::singleline(&mut editor.title)
-                    .id(egui::Id::new("editor_title"))
-                    .hint_text("例如：代码审查")
-                    .font(FontId::proportional(21.0)),
-            );
-            ui.add_space(12.0);
+                    ui.label(body_text("标题"));
+                    ui.add_sized(
+                        [ui.available_width(), 42.0],
+                        TextEdit::singleline(&mut editor.title)
+                            .id(egui::Id::new("editor_title"))
+                            .hint_text("例如：代码审查")
+                            .font(FontId::proportional(21.0)),
+                    );
+                    ui.add_space(12.0);
 
-            ui.label(body_text("标签"));
-            ui.add_sized(
-                [ui.available_width(), 42.0],
-                TextEdit::singleline(&mut editor.tags)
-                    .hint_text("例如：代码, 审查")
-                    .font(FontId::proportional(21.0)),
-            );
-            ui.add_space(12.0);
+                    ui.label(body_text("标签"));
+                    ui.add_sized(
+                        [ui.available_width(), 42.0],
+                        TextEdit::singleline(&mut editor.tags)
+                            .hint_text("例如：代码, 审查")
+                            .font(FontId::proportional(21.0)),
+                    );
+                    ui.add_space(12.0);
 
-            ui.label(body_text("内容"));
-            ui.add_sized(
-                [ui.available_width(), (panel_height - 260.0).max(180.0)],
-                TextEdit::multiline(&mut editor.content)
-                    .hint_text("支持 Markdown，以及 [变量] / [变量|默认值]")
-                    .font(FontId::proportional(20.0)),
-            );
-            ui.add_space(12.0);
+                    ui.label(body_text("内容"));
+                    ui.add_sized(
+                        [ui.available_width(), (panel_height - 260.0).max(180.0)],
+                        TextEdit::multiline(&mut editor.content)
+                            .hint_text("支持 Markdown，以及 [变量] / [变量|默认值]")
+                            .font(FontId::proportional(20.0)),
+                    );
+                    ui.add_space(12.0);
 
-            if ui.button("保存（Command+S）").clicked() {
-                save = true;
-            }
+                    if ui.button("保存（Command+S）").clicked() {
+                        save = true;
+                    }
+                });
         });
 
         if cancel {
