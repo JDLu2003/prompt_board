@@ -928,7 +928,7 @@ fn prompt_row(ui: &mut egui::Ui, prompt: &Prompt, selected: bool) -> egui::Respo
 fn display_title(prompt: &Prompt) -> String {
     if prompt.title.is_empty() {
         let trimmed = prompt.content.trim();
-        let max_chars = 50;
+        let max_chars = 15;
         let end = trimmed
             .char_indices()
             .nth(max_chars)
