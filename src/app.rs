@@ -12,12 +12,14 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use std::{collections::HashMap, path::Path, sync::Arc};
 
 const PANEL_GAP: f32 = 14.0;
-const PANEL_A_WIDTH: f32 = 460.0;
+const PANEL_A_MIN_WIDTH: f32 = 360.0;
+const PANEL_A_MAX_WIDTH: f32 = 580.0;
 const PANEL_B_WIDTH: f32 = 860.0;
 const PANEL_C_WIDTH: f32 = 460.0;
 const WINDOW_MARGIN: f32 = 18.0;
 const PANEL_SCREEN_HEIGHT_RATIO: f32 = 0.8;
 const DEFAULT_UI_SCALE: f32 = 1.45;
+const BUILD_DATE: &str = env!("BUILD_DATE");
 
 pub struct PromptBoardApp {
     store: Option<PromptStore>,
@@ -30,8 +32,11 @@ pub struct PromptBoardApp {
     markdown_cache: CommonMarkCache,
     previous_values: HashMap<String, String>,
     visible: bool,
-    skip_focus_hide_once: bool,
+    show_focus_guard: u8,
+    initialized: bool,
     status: Option<String>,
+    status_timer: u16,
+    copy_flash: u8,
     error: Option<String>,
 }
 
@@ -87,8 +92,11 @@ impl PromptBoardApp {
             markdown_cache: CommonMarkCache::default(),
             previous_values: HashMap::new(),
             visible: true,
-            skip_focus_hide_once: false,
+            show_focus_guard: 0,
+            initialized: false,
             status: None,
+            status_timer: 0,
+            copy_flash: 0,
             error,
         };
         app.refresh_prompts();
@@ -99,7 +107,15 @@ impl PromptBoardApp {
         if let Some(store) = &self.store {
             match store.search(&self.query) {
                 Ok(prompts) => {
+                    let selected_id = self.prompts.get(self.selected).map(|prompt| prompt.id);
                     self.prompts = prompts;
+                    if let Some(id) = selected_id {
+                        self.selected = self
+                            .prompts
+                            .iter()
+                            .position(|prompt| prompt.id == id)
+                            .unwrap_or(0);
+                    }
                     self.selected = self.selected.min(self.prompts.len().saturating_sub(1));
                     self.clear_fill_if_prompt_changed();
                 }
@@ -163,13 +179,17 @@ impl PromptBoardApp {
             .as_ref()
             .is_some_and(|hotkey| hotkey.was_pressed())
         {
-            self.show(ctx);
+            if self.visible && ctx.input(|input| input.focused) {
+                self.hide(ctx);
+            } else {
+                self.show(ctx);
+            }
         }
     }
 
     fn handle_keyboard(&mut self, ctx: &Context) {
         if ctx.input(|input| input.key_pressed(Key::Escape)) {
-            if self.fill.is_some() {
+            if self.fill.is_some() || self.editor.is_some() {
                 self.return_to_selection(ctx);
                 return;
             }
@@ -310,8 +330,15 @@ impl PromptBoardApp {
         let Some(editor) = &self.editor else {
             return;
         };
+
+        let title = if editor.title.trim().is_empty() {
+            first_line_title(&editor.content)
+        } else {
+            editor.title.trim().to_owned()
+        };
+
         let draft = PromptDraft {
-            title: editor.title.trim().to_owned(),
+            title,
             content: editor.content.trim().to_owned(),
             tags: editor.tags.trim().to_owned(),
         };
@@ -332,7 +359,7 @@ impl PromptBoardApp {
         match result {
             Some(Ok(())) => {
                 self.editor = None;
-                self.status = Some("已保存提示词".to_owned());
+                self.set_status("已保存提示词");
                 self.refresh_prompts();
                 ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("search")));
             }
@@ -354,7 +381,7 @@ impl PromptBoardApp {
             Ok(()) => {
                 self.fill = None;
                 self.editor = None;
-                self.status = Some("已删除提示词".to_owned());
+                self.set_status("已删除提示词");
                 self.refresh_prompts();
             }
             Err(err) => self.error = Some(err.to_string()),
@@ -387,7 +414,10 @@ impl PromptBoardApp {
 
         ctx.copy_text(text.clone());
         match copy_to_clipboard(&text) {
-            Ok(()) => self.status = Some("已复制预览内容".to_owned()),
+            Ok(()) => {
+                self.set_status("已复制预览内容");
+                self.copy_flash = 40;
+            }
             Err(err) => self.error = Some(format!("剪贴板错误：{err}")),
         }
         self.refresh_prompts();
@@ -396,7 +426,8 @@ impl PromptBoardApp {
     fn copy_prompt_text(&mut self, prompt_id: i64, text: String) {
         match copy_to_clipboard(&text) {
             Ok(()) => {
-                self.status = Some("已复制提示词".to_owned());
+                self.set_status("已复制提示词");
+                self.copy_flash = 40;
                 if let Some(store) = &self.store {
                     if let Err(err) = store.mark_used(prompt_id) {
                         self.error = Some(err.to_string());
@@ -410,9 +441,11 @@ impl PromptBoardApp {
 
     fn show(&mut self, ctx: &Context) {
         self.visible = true;
-        self.skip_focus_hide_once = true;
+        self.show_focus_guard = 40;
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(ViewportCommand::Focus);
+        self.position_window_at_right(ctx);
         ctx.memory_mut(|memory| memory.request_focus(egui::Id::new("search")));
     }
 
@@ -430,23 +463,46 @@ impl PromptBoardApp {
         ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(x, y)));
     }
 
+    fn panel_a_width(&self) -> f32 {
+        let char_width = 18.0 * DEFAULT_UI_SCALE;
+        let max_title = self
+            .prompts
+            .iter()
+            .map(|prompt| display_title(prompt).chars().count())
+            .max()
+            .unwrap_or(8) as f32;
+        let max_tags = self
+            .prompts
+            .iter()
+            .map(|prompt| prompt.tags.chars().count())
+            .max()
+            .unwrap_or(0) as f32;
+        let text_width = max_title.max(max_tags) * char_width + 80.0;
+        text_width.clamp(PANEL_A_MIN_WIDTH, PANEL_A_MAX_WIDTH)
+    }
+
     fn desired_window_width(&self) -> f32 {
-        let mut width = PANEL_A_WIDTH + PANEL_GAP + PANEL_B_WIDTH;
+        let mut width = self.panel_a_width() + PANEL_GAP + PANEL_B_WIDTH;
         if self.fill.is_some() || self.editor.is_some() {
             width += PANEL_GAP + PANEL_C_WIDTH;
         }
         width + WINDOW_MARGIN * 2.0
     }
 
+    fn set_status(&mut self, text: &str) {
+        self.status = Some(text.to_owned());
+        self.status_timer = 100;
+    }
+
     fn hide(&mut self, ctx: &Context) {
         self.visible = false;
-        self.skip_focus_hide_once = false;
+        self.show_focus_guard = 0;
         ctx.send_viewport_cmd(ViewportCommand::Visible(false));
     }
 
     fn hide_when_unfocused(&mut self, ctx: &Context) {
-        if self.skip_focus_hide_once {
-            self.skip_focus_hide_once = false;
+        if self.show_focus_guard > 0 {
+            self.show_focus_guard = self.show_focus_guard.saturating_sub(1);
             return;
         }
 
@@ -459,7 +515,8 @@ impl PromptBoardApp {
         let panel_height = (ui.available_height() - WINDOW_MARGIN * 2.0).max(360.0);
         let right_edge = ui.available_width() - WINDOW_MARGIN;
         let panel_y = WINDOW_MARGIN;
-        let panel_a_x = right_edge - PANEL_A_WIDTH;
+        let panel_a_w = self.panel_a_width();
+        let panel_a_x = right_edge - panel_a_w;
         let panel_b_x = panel_a_x - PANEL_GAP - PANEL_B_WIDTH;
         let panel_c_x = panel_b_x - PANEL_GAP - PANEL_C_WIDTH;
 
@@ -483,12 +540,12 @@ impl PromptBoardApp {
             .fixed_pos(Pos2::new(panel_a_x, panel_y))
             .order(egui::Order::Foreground)
             .show(ui.ctx(), |ui| {
-                self.panel_a(ui, panel_height);
+                self.panel_a(ui, panel_height, panel_a_w);
             });
     }
 
-    fn panel_a(&mut self, ui: &mut egui::Ui, panel_height: f32) {
-        mac_panel("A", ui, PANEL_A_WIDTH, panel_height, |ui| {
+    fn panel_a(&mut self, ui: &mut egui::Ui, panel_height: f32, panel_width: f32) {
+        mac_panel("A", ui, panel_width, panel_height, |ui| {
             ui.horizontal(|ui| {
                 ui.label(section_title("提示词"));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -517,6 +574,13 @@ impl PromptBoardApp {
                 if ui.button("删除").clicked() {
                     self.delete_selected();
                 }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(format!("build: {BUILD_DATE}"))
+                            .font(FontId::proportional(15.0))
+                            .color(Color32::from_rgb(140, 146, 155)),
+                    );
+                });
             });
             ui.add_space(12.0);
             self.prompt_list(ui);
@@ -575,7 +639,24 @@ impl PromptBoardApp {
             ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui.label(section_title(&title));
+                    ui.horizontal(|ui| {
+                        ui.label(section_title(&title));
+                        if self.copy_flash > 0 {
+                            let alpha = (self.copy_flash as f32 / 40.0).min(1.0);
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.label(
+                                    RichText::new("✓ 已复制")
+                                        .font(FontId::proportional(22.0))
+                                        .color(Color32::from_rgba_premultiplied(
+                                            0,
+                                            180,
+                                            100,
+                                            (255.0 * alpha) as u8,
+                                        )),
+                                );
+                            });
+                        }
+                    });
                     ui.add_space(6.0);
                     if let Some(tags) = tags {
                         ui.label(
@@ -747,7 +828,12 @@ impl PromptBoardApp {
 }
 
 impl eframe::App for PromptBoardApp {
-    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        if !self.initialized {
+            self.initialized = true;
+            self.hide(ctx);
+        }
+
         self.handle_global_hotkey(ctx);
         self.handle_keyboard(ctx);
         self.hide_when_unfocused(ctx);
@@ -755,9 +841,23 @@ impl eframe::App for PromptBoardApp {
             self.position_window_at_right(ctx);
         }
 
+        if self.status_timer > 0 {
+            self.status_timer = self.status_timer.saturating_sub(1);
+            if self.status_timer == 0 {
+                self.status = None;
+            }
+        }
+        if self.copy_flash > 0 {
+            self.copy_flash = self.copy_flash.saturating_sub(1);
+        }
+
+        ctx.request_repaint_after(std::time::Duration::from_millis(80));
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(Color32::TRANSPARENT))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 if let Some(error) = &self.error {
                     egui::Area::new(egui::Id::new("error_banner"))
                         .fixed_pos(Pos2::new(18.0, 14.0))
@@ -779,26 +879,41 @@ impl eframe::App for PromptBoardApp {
                 self.draw_panels(ui);
 
                 if let Some(status) = &self.status {
+                    let alpha = if self.status_timer < 15 {
+                        self.status_timer as f32 / 15.0
+                    } else {
+                        1.0
+                    };
+                    let frame_fill = Color32::from_rgba_premultiplied(
+                        (246.0 * alpha) as u8,
+                        (248.0 * alpha) as u8,
+                        (250.0 * alpha) as u8,
+                        (235.0 * alpha) as u8,
+                    );
+                    let frame_stroke = Stroke::new(
+                        1.0,
+                        Color32::from_rgba_premultiplied(205, 210, 218, (150.0 * alpha) as u8),
+                    );
+                    let text_color =
+                        Color32::from_rgba_premultiplied(55, 61, 68, (255.0 * alpha) as u8);
                     egui::Area::new(egui::Id::new("status_banner"))
                         .anchor(egui::Align2::RIGHT_BOTTOM, vec2(-22.0, -18.0))
                         .show(ui.ctx(), |ui| {
                             egui::Frame::NONE
-                                .fill(Color32::from_rgba_premultiplied(246, 248, 250, 235))
-                                .stroke(Stroke::new(1.0, Color32::from_rgb(205, 210, 218)))
+                                .fill(frame_fill)
+                                .stroke(frame_stroke)
                                 .corner_radius(CornerRadius::same(9))
                                 .inner_margin(egui::Margin::symmetric(14, 10))
                                 .show(ui, |ui| {
                                     ui.label(
                                         RichText::new(status)
                                             .font(FontId::proportional(17.0))
-                                            .color(Color32::from_rgb(55, 61, 68)),
+                                            .color(text_color),
                                     );
                                 });
                         });
                 }
             });
-
-        ctx.request_repaint_after(std::time::Duration::from_millis(80));
     }
 }
 
@@ -836,15 +951,9 @@ fn desired_panel_height(monitor_height: f32) -> f32 {
 
 fn consume_copy_shortcut(ctx: &Context) -> bool {
     ctx.input_mut(|input| {
-        let mut copied = false;
-        input.events.retain(|event| {
-            let is_copy = matches!(event, Event::Copy);
-            copied |= is_copy;
-            !is_copy
-        });
-
-        copied || input.consume_key(Modifiers::COMMAND, Key::C)
-    })
+        input.events.retain(|event| !matches!(event, Event::Copy));
+    });
+    ctx.input(|input| input.modifiers.command && input.key_pressed(Key::C))
 }
 
 fn consume_plain_enter(ctx: &Context) -> bool {
@@ -926,21 +1035,39 @@ fn prompt_row(ui: &mut egui::Ui, prompt: &Prompt, selected: bool) -> egui::Respo
 }
 
 fn display_title(prompt: &Prompt) -> String {
-    if prompt.title.is_empty() {
-        let trimmed = prompt.content.trim();
-        let max_chars = 15;
-        let end = trimmed
-            .char_indices()
-            .nth(max_chars)
-            .map(|(i, _)| i)
-            .unwrap_or(trimmed.len());
-        if end < trimmed.len() {
-            format!("{}…", &trimmed[..end])
-        } else {
-            trimmed.to_owned()
-        }
+    let title = if prompt.title.is_empty() {
+        first_line_title(&prompt.content)
     } else {
         prompt.title.clone()
+    };
+
+    let trimmed = title.trim();
+    let max_chars = 15;
+    let end = trimmed
+        .char_indices()
+        .nth(max_chars)
+        .map(|(i, _)| i)
+        .unwrap_or(trimmed.len());
+    if end < trimmed.len() {
+        format!("{}…", &trimmed[..end])
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn first_line_title(content: &str) -> String {
+    let first_line = content.lines().next().unwrap_or("").trim();
+    let stripped = first_line.trim_start_matches('#').trim();
+    if stripped.is_empty() {
+        content
+            .lines()
+            .skip(1)
+            .find(|line| !line.trim().is_empty())
+            .map(|line| line.trim().trim_start_matches('#').trim())
+            .unwrap_or("未命名")
+            .to_owned()
+    } else {
+        stripped.to_owned()
     }
 }
 
@@ -959,10 +1086,12 @@ fn body_text(text: &str) -> RichText {
 
 fn configure_chinese_fonts(ctx: &Context) -> Result<(), String> {
     let candidates = [
-        "/Library/Fonts/Arial Unicode.ttf",
-        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-        "/System/Library/Fonts/Hiragino Sans GB.ttc",
         "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
     ];
 
     let Some((font_path, font_bytes)) = candidates

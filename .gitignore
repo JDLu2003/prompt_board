@@ -1,2 +1,8 @@
 /target/
 .DS_Store
+/.learning/
+/.vscode/
+.idea/
+*.iml
+*.log
+*.tmp

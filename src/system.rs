@@ -1,7 +1,7 @@
 use arboard::Clipboard;
 use global_hotkey::{
     hotkey::{Code, HotKey, Modifiers},
-    GlobalHotKeyEvent, GlobalHotKeyManager,
+    GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
 };
 
 pub struct HotkeyController {
@@ -24,7 +24,7 @@ impl HotkeyController {
         let receiver = GlobalHotKeyEvent::receiver();
         let mut pressed = false;
         while let Ok(event) = receiver.try_recv() {
-            if event.id == self.hotkey.id() {
+            if event.id == self.hotkey.id() && event.state == HotKeyState::Pressed {
                 pressed = true;
             }
         }

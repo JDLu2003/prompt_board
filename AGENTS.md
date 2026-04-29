@@ -63,3 +63,7 @@ Two workflows exist in `.github/workflows/`:
 
 1. Bump version in `Cargo.toml` `package.version`, and both `CFBundleShortVersionString` and `CFBundleVersion` in `packaging/macos/Info.plist`.
 2. Commit, tag `vX.Y.Z`, push both `main` and the tag.
+
+## Language
+
+使用中文进行回复

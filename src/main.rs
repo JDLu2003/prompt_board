@@ -15,7 +15,7 @@ fn main() -> eframe::Result<()> {
             .with_decorations(false)
             .with_transparent(true)
             .with_always_on_top()
-            .with_visible(false),
+            .with_visible(true),
         ..Default::default()
     };
 
